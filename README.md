@@ -1,110 +1,194 @@
-# 🔬 LLM 中转站测试工具包 (relay-tester)
+# relay-tester
 
-> 测试任意 **OpenAI 兼容中转站**的速度与"纯血度"——识别型号虚标、上下文造假、档位倒挂、身份伪装等猫腻。
-> 2026-09-05 针对 `1.19848845.xyz` 的实测案例见 [`report_案例_1.19848845.xyz.md`](report_案例_1.19848845.xyz.md)。
+<p align="center">
+  <img src="docs/img/hero.png" alt="relay-tester — protocol-layer autopsy for OpenAI-compatible LLM relays" width="100%">
+</p>
 
-## 目录结构
+<p align="center">
+  <a href="https://github.com/jinyimeng01/relay-tester/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-38bdf8?style=flat-square" alt="MIT"></a>
+  <img src="https://img.shields.io/badge/python-3.10%2B-22d3ee?style=flat-square" alt="Python">
+  <img src="https://img.shields.io/badge/protocol-OpenAI%20compatible-818cf8?style=flat-square" alt="protocol">
+  <img src="https://img.shields.io/badge/probes-6--dimensional-34d399?style=flat-square" alt="probes">
+  <img src="https://img.shields.io/badge/case-1.19848845.xyz-f87171?style=flat-square" alt="case">
+</p>
 
+**Marketing strings are attacker-controlled. Tokenizer counts, knowledge cutoffs, and `usage` schemas are not.**
+
+`relay-tester` is a protocol-layer autopsy kit for any OpenAI-compatible (and Anthropic-compatible) LLM relay. It does not trust the sold model name. It measures the **behavior the gateway is forced to forward** — then closes a fingerprint matrix.
+
+| You think you bought | The protocol actually exposes |
+|----------------------|-------------------------------|
+| `deepseek-v4-pro` | tokenizer family, knowledge cutoff, `reasoning_tokens` schema |
+| `[1M]` context | registration name, 403 on the marketing suffix, self-reported window |
+| “most expensive = strongest” | same DP problem across tiers (inversion is visible) |
+| “pure-text R1/V3” | whether a PIL canvas is described anyway (diversion / hidden VL) |
+
+Companion long-form writeup (Chinese, Mermaid-first):
+[三个 DeepSeek-V4，tokenizer 差了三倍：LLM 中转站协议层开膛与全维指纹检测](https://github.com/jinyimeng01/relay-tester) · vault copy in `2文章研究/01-已发布/LLM中转站指纹检测完全指南/index.md`
+
+---
+
+## Architecture — five layers the gateway can lie on
+
+<p align="center">
+  <img src="docs/img/architecture.png" alt="Client SDK to five-layer relay gateway to official vs unknown upstream" width="100%">
+</p>
+
+The sold `model` field is an **echo**. It proves registration, not identity.
+
+| Layer | What the gateway controls | What still leaks |
+|-------|---------------------------|------------------|
+| L1 Routing | which upstream a tier hits | capability inversion across tiers |
+| L2 Rewrite | system prompt, sold-name echo | unified identity copy (leak probe) |
+| L3 Params | `max_tokens`, stripped `reasoning_content` | contract violations |
+| L4 Metering | `usage` pass-through **or** re-pack | `prompt_tokens` as tokenizer fingerprint; re-pack is itself evidence |
+| L5 Protocol | error envelope | `new_api_error` ⇒ new-api / one-api family |
+
+**Integrity paradox.** To stay usable the gateway must forward real model behavior. To cheat it must rewrite identity and parameters. Forward more → stronger fingerprints. Rewrite more → more contract evidence. It cannot have both.
+
+---
+
+## Fingerprint plane — six probes, three questions
+
+<p align="center">
+  <img src="docs/img/probes.png" alt="Six-probe fingerprint plane: claims, actual, real" width="100%">
+</p>
+
+| ID | Probe | Gold-standard? | Alone enough? | Cross-check |
+|----|--------|:--------------:|:-------------:|-------------|
+| P1 | Identity pentad (name / cutoff / context / official API / bias) | cutoff **yes** | cutoff yes | P2 |
+| P2 | Tokenizer — same pangram → `usage.prompt_tokens` | **yes** | family yes | P1 cutoff |
+| P3 | Capability gradient — broken-stair DP, `n=20` → **845** | no | needs cross-tier | P6 |
+| P4 | System-prompt leak / unified copy | no | circumstantial | all |
+| P5 | Vision — PIL canvas `HELLO-42` | no | needs official card | P1 claim |
+| P6 | Similarity — T=0, same short prompt, prefix overlap | no | suspicion only | P2 |
+
+**Decision law:** never convict on a single probe. Tokenizer Δ ≥ 30% plus mutually exclusive cutoffs is mix-and-match, not a skin. Tokenizer homology plus T=0 overlap is the same backend.
+
+Cutoff dates in the lookup table drift when vendors ship new cards. Relative comparison on the **same day, same site** still holds: same sold family with conflicting cutoffs is assembly.
+
+---
+
+## Pipeline — 15 minutes, then buy (or don’t)
+
+<p align="center">
+  <img src="docs/img/pipeline.png" alt="Ingest, benchmark, fingerprint, matrix, verdict" width="100%">
+</p>
+
+```text
+ingest  →  benchmark (3-tier × N)  →  six probes (all sold names)
+        →  matrix (tokenizer Δ × cutoff × usage schema)
+        →  verdict (mix / skin / inversion / diversion / metering)
 ```
-relay-tester/
-├── README.md                          # 本文档(用法+方法论)
-├── benchmark.py                       # 测速: 延迟 / tok/s / max_tokens 遵守
-├── probe_suite.py                     # 深度指纹: 身份拆解 6 连测
-├── report_案例_1.19848845.xyz.md      # 完整实测案例报告(含结论方法论)
-└── requirements.txt                   # openai, pillow(可选)
-```
 
-## 快速开始
+Gold standard intersection: **tokenizer count × knowledge cutoff × usage schema**.
+
+---
+
+## Install
 
 ```bash
-pip install openai            # 必须
-pip install pillow            # 可选, 视觉验证用
+git clone https://github.com/jinyimeng01/relay-tester.git
+cd relay-tester
+pip install -r requirements.txt   # openai (required) · pillow (vision probe)
+```
 
-# 1) 测速 (哪档快)
-python benchmark.py --api-key sk-xxx --base-url https://your-relay.com/v1 \
+Python 3.10+. Keys from the environment — never in the repo:
+
+| Flag | Env fallback |
+|------|----------------|
+| `--api-key` | `ANTHROPIC_AUTH_TOKEN` or `OPENAI_API_KEY` |
+| `--base-url` | `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` |
+| `--model` | `ANTHROPIC_DEFAULT_FABLE_MODEL` or `LLM_MODEL` |
+
+`--base-url` may omit `/v1` (the scripts append it). Sold names with `[1M]` are stripped before the request; the suffix is still evidence.
+
+---
+
+## Usage
+
+```bash
+# 1) Speed + metering  —  trust only the long tier for tok/s
+python benchmark.py --api-key "$KEY" --base-url https://your-relay.com/v1 \
                     --model your-model --rounds 3
 
-# 2) 深度指纹 (是什么底模, 有没有猫腻)
-python probe_suite.py --api-key sk-xxx --base-url https://your-relay.com/v1 \
+# 2) Six-probe autopsy  —  pass EVERY sold tier; cross-model is the point
+python probe_suite.py --api-key "$KEY" --base-url https://your-relay.com/v1 \
                       --models model-a,model-b,model-c
 ```
 
-也可以不传参数, 直接复用环境变量 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_DEFAULT_FABLE_MODEL`。
+`probe_suite.py` writes `probe_report.json` (gitignored).
 
-### 通用参数
+### How to read `benchmark.py`
 
-| 参数 | 说明 |
-|------|------|
-| `--api-key` | API 密钥 |
-| `--base-url` | 端点地址, **可不带 `/v1`**(脚本自动补全) |
-| `--model(s)` | 模型名, 自动剥离 `[1M]` 等营销后缀 |
-| `--rounds` | 每档测速轮数 (默认 3) |
-| `--output` | JSON 结果文件 |
+| Tier | What it measures | What it is not |
+|------|------------------|----------------|
+| short / medium | TTFT-dominated | **not** throughput |
+| **long** (≥300 tok) | the only honest tok/s | — |
+| `max_tokens_violated` | `completion_tokens > expect × 1.5` | systematic ignore, not a 20-token overrun |
 
----
-
-## 方法论: 怎么测才准
-
-### 速度 (benchmark.py)
-
-| 档位 | 作用 | 注意 |
-|------|------|------|
-| short / medium (短输出) | 看首字延迟 TTFT | **数值虚低, 无吞吐参考价值** |
-| long (长输出 300+ tok) | 看真实吞吐 | **唯一可信的 tok/s 指标** |
-
-- 顺带检测 **max_tokens 是否被遵守**: 超额输出 = 中转层(如 new-api)有手脚
-- 要更精确的流式吞吐, 可自行加 `stream=True`, 用首 chunk 时间算 TTFT
-
-### 纯血度 (probe_suite.py) — 6 连测
-
-| # | 测试 | 抓什么猫腻 |
-|---|------|-----------|
-| 1 | **身份指纹** 5 问 | 自称、知识截止、上下文、对官方 API 的认知、是否会被系统提示洗脑 |
-| 2 | **Tokenizer 指纹** | 同一文本的 prompt_tokens 计数。**同家族模型 tokenizer 同源**; 差 30%+ = 不同底模 |
-| 3 | **能力梯度** (同一道 DP 难题) | 各档正确率; 最贵档答错 = **档位倒挂** |
-| 4 | **System prompt 泄漏** | 诱导输出注入的提示词, 看中转商给它套了什么身份 |
-| 5 | **视觉验证** (PIL 生成测试图) | 自称纯文本模型却能看图 → 图像被分流/伪视觉 |
-| 6 | **交叉相似性** | 同问同参温度 0 对比; 高度重合 = 不同名字同后端(套皮) |
-
-### 指纹判读速查表
-
-| 指纹 | DeepSeek V3 | DeepSeek R1 | Qwen / GLM / Kimi | 备注 |
-|------|:---:|:---:|:---:|------|
-| 知识截止 | 2024-06/07 | 2024-07 | 各不同 (Qwen3≈2025) | **最强指纹**, 套不了假 |
-| 自称 | DeepSeek-V3 | DeepSeek-R1 | 各自 | 会被 system prompt 伪造 |
-| 上下文 | 128K | 128K | 视型号 | 虚标重灾区 (`[1M]` 多为假) |
-| usage.reasoning_tokens | 无/0 | 有 | 视模型 | R1 系 API 结构特征 |
-| 视觉 | ❌ 纯文本 | ❌ 纯文本 | 看型号 | R1/V3 能看图 = 必有分流 |
-
-> ⚠️ 知识截止会随模型更新变化, 表中数值基于 2024-2025 年公开模型。**核心逻辑不变: 同系列模型指纹必然一致, 不一致就是拼装。**
+Streaming TTFB is a separate number. Do not fold queue delay into tok/s.
 
 ---
 
-## 常见猫腻清单 (实测验证过的)
+## Field case — `https://1.19848845.xyz` (2026-09-05)
 
-1. **型号虚标**: 真实官方 API 不存在 "v4" 等新名字, 拿老模型贴新版本号溢价卖
-2. **上下文造假**: 宣传 `[1M]`, 实测 128K (官方旧模型原值)
-3. **档位收费与能力倒挂**: 最贵档能力反而最差 (见案例报告)
-4. **身份系统伪装**: 注入 "你是 DeepSeek" 提示词, 问不出真实底模
-5. **图像请求分流**: 纯文本模型也能"看图" = 图片被第三方视觉管道处理 ⚠️ 隐私风险
-6. **中转层小动作**: 无视 max_tokens、剥离 reasoning_content (R1 思考过程被吃掉)
-7. **报错指纹**: 报错含 `new_api_error` = 后端是 new-api/one-api 中转框架
+<p align="center">
+  <img src="docs/img/case-matrix.png" alt="Three sold DeepSeek-v4 names, three tokenizers, inverted pricing" width="100%">
+</p>
 
-## 安全提示
+Single-day sample. Direction is stable; exact numbers are for reproduction.
 
-- ⚠️ **密钥不要硬编码进脚本** (本工具包默认从环境变量读)
-- ⚠️ 野鸡中转无法保证数据只用官方 API; 敏感图片/代码/文档慎发
-- ✅ 真要 DeepSeek: 官方 `platform.deepseek.com` (`deepseek-chat` / `deepseek-reasoner`) 便宜且无伪装
+| Sold name | `prompt_tokens` | Cutoff | DP 845 | Inference (interval, not a checkpoint) |
+|-----------|----------------:|:------:|:------:|----------------------------------------|
+| `deepseek-v4-pro` | **899** | 2024-07 | **130 FAIL** | ≈ R1-class reasoner |
+| `deepseek-v4-flash` | **308** | 2024-06 | 845 PASS | ≈ V3 / `deepseek-chat` |
+| `v4-flash-vision-exp` | **587** | 2026-01 | 845 PASS | ≈ V3.2-exp-class VL |
 
-## 案例速览 (2026-09-05 实测)
+Also: `[1M]` suffix → **403**; self-report 128K; `max_tokens=300` → **1024**; all three describe a synthetic image (official V3/R1 are text-only). Error envelope: `new_api_error`.
 
-三个 "deepseek-v4-*" 名字实为三个不同时代底模 (Tokenizer 899/308/587), 档位能力倒挂 (pro 答错 DP 题), `[1M]` 为假, 详见案例报告。
+Full narrative: [`report_案例_1.19848845.xyz.md`](report_案例_1.19848845.xyz.md)
 
-## 开源与引用
+---
 
-- License: MIT（见 `LICENSE`）
-- 配套长文（vault）：`2文章研究/00-进行中/LLM中转站指纹检测完全指南/index.md`
-- 发布到 GitHub 后，把仓库 URL 写进该文附录 A 的占位符 `https://github.com/jinyimeng01/relay-tester`
-- 不要提交 `.env`、`probe_report.json`、未打码的密钥；案例报告里的 key 必须打码
+## Threat model (what this is / is not)
 
-本工具只对你已经持有合法 API 密钥的端点发对话补全请求，不是端口扫描器，也不是未授权测试框架。
+| This tool | This tool is not |
+|-----------|------------------|
+| Talks to an endpoint **you already hold a paid key for** | A port scanner, crawler, or unauth tester |
+| Measures chat-completion behavior | An exploit, jailbreak pack, or billing bypass |
+| Emits interval inferences (`≈ R1-class`) | A courtroom identity of a checkpoint |
+| Treats errors as fingerprints | “The probe failed, discard the site” |
+
+Do not send secrets, source, or documents through a relay you have not autopsied. Vision diversion is a privacy signal, not a reason to upload a real passport “to confirm”.
+
+---
+
+## Reproduce the diagrams
+
+```bash
+pip install pillow
+python docs/render_architecture.py   # writes docs/img/*.png
+```
+
+---
+
+## Layout
+
+```text
+relay-tester/
+├── benchmark.py                 # 3-tier latency + max_tokens audit
+├── probe_suite.py               # 6-probe fingerprint suite
+├── requirements.txt
+├── report_案例_1.19848845.xyz.md
+├── docs/
+│   ├── render_architecture.py
+│   └── img/                     # hero · architecture · probes · pipeline · case
+└── LICENSE                      # MIT
+```
+
+---
+
+## Ethics
+
+Requests in the bundled case used an author-owned, paid key against a public compatible endpoint. Relays may change routing at any time. Brand names remain with their owners. Do not commit `.env`, raw keys, or `probe_report.json`.

@@ -5,5 +5,4 @@ __pycache__/
 .env.*
 benchmark_results.json
 probe_report.json
-*.png
 .DS_Store
