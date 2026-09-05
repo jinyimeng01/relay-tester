@@ -104,7 +104,7 @@ python probe_suite.py --api-key sk-xxx --base-url https://your-relay.com/v1 \
 
 - License: MIT（见 `LICENSE`）
 - 配套长文（vault）：`2文章研究/00-进行中/LLM中转站指纹检测完全指南/index.md`
-- 发布到 GitHub 后，把仓库 URL 写进该文附录 A 的占位符 `https://github.com/<user>/relay-tester`
+- 发布到 GitHub 后，把仓库 URL 写进该文附录 A 的占位符 `https://github.com/jinyimeng01/relay-tester`
 - 不要提交 `.env`、`probe_report.json`、未打码的密钥；案例报告里的 key 必须打码
 
 本工具只对你已经持有合法 API 密钥的端点发对话补全请求，不是端口扫描器，也不是未授权测试框架。
