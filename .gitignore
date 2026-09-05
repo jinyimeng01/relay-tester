@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+benchmark_results.json
+probe_report.json
+*.png
+.DS_Store

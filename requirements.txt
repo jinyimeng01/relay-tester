@@ -1,0 +1,2 @@
+openai>=1.0
+pillow>=10.0  # 可选: probe_suite.py 视觉验证需要
